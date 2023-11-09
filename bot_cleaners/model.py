@@ -11,6 +11,7 @@ class Celda(Agent):
     def __init__(self, unique_id, model, suciedad: bool = False):
         super().__init__(unique_id, model)
         self.sucia = suciedad
+        
 
 
 class Mueble(Agent):
@@ -46,12 +47,16 @@ class RobotLimpieza(Agent):
         return celdas_sucias
 
     def step(self):
-        vecinos = self.model.grid.get_neighbors(
+        
+        vecindad = self.model.grid.get_neighborhood(
             self.pos, moore=True, include_center=False)
 
-        for vecino in vecinos:
-            if isinstance(vecino, (Mueble, RobotLimpieza)):
-                vecinos.remove(vecino)
+        vecinos = list()
+        for cell in vecindad:
+                objects = self.model.grid.get_cell_list_contents(cell)
+                for obj in objects:
+                    if not isinstance(obj, (Mueble, RobotLimpieza)): # Agregar cargadores
+                        vecinos.append(obj)
 
         celdas_sucias = self.buscar_celdas_sucia(vecinos)
 
