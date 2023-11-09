@@ -32,7 +32,8 @@ class RobotLimpieza(Agent):
         self.sig_pos = celda_a_limpiar.pos
 
     def seleccionar_nueva_pos(self, lista_de_vecinos):
-        self.sig_pos = self.random.choice(lista_de_vecinos).pos
+        if (len(lista_de_vecinos) != 0):
+            self.sig_pos = self.random.choice(lista_de_vecinos).pos
 
     @staticmethod
     def buscar_celdas_sucia(lista_de_vecinos):
