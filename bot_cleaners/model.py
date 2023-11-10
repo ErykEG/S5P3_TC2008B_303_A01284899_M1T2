@@ -6,18 +6,21 @@ from mesa.datacollection import DataCollector
 
 import numpy as np
 
-
+xGrid = 0
+yGrid = 0
 class Celda(Agent):
     def __init__(self, unique_id, model, suciedad: bool = False):
         super().__init__(unique_id, model)
         self.sucia = suciedad
-        
-
 
 class Mueble(Agent):
     def __init__(self, unique_id, model):
         super().__init__(unique_id, model)
 
+class Cargador(Agent):
+    def _init_(self, unique_id, model):
+        super()._init_(unique_id, model)
+        self.cargas = 0
 
 class RobotLimpieza(Agent):
     def __init__(self, unique_id, model):
@@ -25,6 +28,7 @@ class RobotLimpieza(Agent):
         self.sig_pos = None
         self.movimientos = 0
         self.carga = 100
+        self.cargaBaja = False
 
     def limpiar_una_celda(self, lista_de_celdas_sucias):
         celda_a_limpiar = self.random.choice(lista_de_celdas_sucias)
@@ -34,13 +38,33 @@ class RobotLimpieza(Agent):
     def seleccionar_nueva_pos(self, lista_de_vecinos):
         if (len(lista_de_vecinos) != 0):
             self.sig_pos = self.random.choice(lista_de_vecinos).pos
+    
+    def cargar(self, vecinos):
+        x, y = self.pos
+        objects = self.model.grid.get_cell_list_contents(self.pos)
+        for obj in objects:
+            if isinstance(obj, Celda):
+                obj.sucia = False
+        if x <= int(xGrid/2) and x - 1 >= 0:
+            for vecino in vecinos:
+                if vecino.pos == (x-1,y):
+                    self.sig_pos = (x-1,y)
+        elif x > int(xGrid/2) and x + 1 < xGrid:
+            for vecino in vecinos:
+                if vecino.pos == (x+1,y):
+                    self.sig_pos = (x+1,y)
+        
+        if y <= int(yGrid/2) and y - 1 >= 0:
+            for vecino in vecinos:
+                if vecino.pos == (x,y-1):
+                    self.sig_pos = (x,y-1)
+        elif y > int(yGrid/2) and y + 1 < yGrid:
+            for vecino in vecinos:
+                if vecino.pos == (x,y+1):
+                    self.sig_pos = (x,y+1)
 
     @staticmethod
     def buscar_celdas_sucia(lista_de_vecinos):
-        # #Opción 1
-        # return [vecino for vecino in lista_de_vecinos
-        #                 if isinstance(vecino, Celda) and vecino.sucia]
-        # #Opción 2
         celdas_sucias = list()
         for vecino in lista_de_vecinos:
             if isinstance(vecino, Celda) and vecino.sucia:
@@ -56,15 +80,26 @@ class RobotLimpieza(Agent):
         for cell in vecindad:
                 objects = self.model.grid.get_cell_list_contents(cell)
                 for obj in objects:
-                    if not isinstance(obj, (Mueble, RobotLimpieza)): # Agregar cargadores
+                    if isinstance(obj, Celda):
                         vecinos.append(obj)
+                    if isinstance(obj, Cargador):
+                        if self.carga + 25 <= 100:
+                            self.carga += 25
 
-        celdas_sucias = self.buscar_celdas_sucia(vecinos)
-
-        if len(celdas_sucias) == 0:
-            self.seleccionar_nueva_pos(vecinos)
+        if self.carga < 35:
+            self.cargaBaja = True
+        elif self.carga > 75:
+            self.cargaBaja = False
+        
+        if self.cargaBaja:
+            self.cargar(vecinos)
         else:
-            self.limpiar_una_celda(celdas_sucias)
+            celdas_sucias = self.buscar_celdas_sucia(vecinos)
+
+            if len(celdas_sucias) == 0:
+                self.seleccionar_nueva_pos(vecinos)
+            else:
+                self.limpiar_una_celda(celdas_sucias)
 
     def advance(self):
         if self.pos != self.sig_pos:
@@ -74,7 +109,6 @@ class RobotLimpieza(Agent):
             self.carga -= 1
             self.model.grid.move_agent(self, self.sig_pos)
 
-
 class Habitacion(Model):
     def __init__(self, M: int, N: int,
                  num_agentes: int = 5,
@@ -82,7 +116,10 @@ class Habitacion(Model):
                  porc_muebles: float = 0.1,
                  modo_pos_inicial: str = 'Fija',
                  ):
-
+        global xGrid
+        global yGrid
+        xGrid = M
+        yGrid = N
         self.num_agentes = num_agentes
         self.porc_celdas_sucias = porc_celdas_sucias
         self.porc_muebles = porc_muebles
@@ -92,7 +129,31 @@ class Habitacion(Model):
 
         posiciones_disponibles = [pos for _, pos in self.grid.coord_iter()]
 
-        # Posicionamiento de muebles
+        # Posicionamiento de Cargadores
+        remove = [(1, N-2),(M-2, N-2), (1, 1), (M-2, 1)]
+        for pos in remove:
+            posiciones_disponibles.remove(pos)
+            celda = Celda(int(f"{num_agentes}0") + 1, self, False)
+            self.grid.place_agent(celda, pos)
+        remove = [(0, N-1), (M-1, N-1), (0, 0), (M-1, 0)]
+        for pos in remove:
+            posiciones_disponibles.remove(pos)
+        for y in range(1,yGrid-1):
+            posiciones_disponibles.remove((0,y))
+            posiciones_disponibles.remove((xGrid-1,y))
+            self.grid.place_agent(Celda(int(f"{num_agentes}00") + 1, self, False), (0,y))
+            self.grid.place_agent(Celda(int(f"{num_agentes}00") + 1, self, False), (xGrid-1,y))
+        for x in range(1,xGrid-1):
+            posiciones_disponibles.remove((x,0))
+            posiciones_disponibles.remove((x,yGrid-1))
+            self.grid.place_agent(Celda(int(f"{num_agentes}00") + 1, self, False), (x,0))
+            self.grid.place_agent(Celda(int(f"{num_agentes}00") + 1, self, False), (x,yGrid-1))
+        self.grid.place_agent(Cargador(int(f"{num_agentes}") + 1, self), (0, N-1))
+        self.grid.place_agent(Cargador(int(f"{num_agentes}") + 2, self), (M-1, N-1))
+        self.grid.place_agent(Cargador(int(f"{num_agentes}") + 3, self), (0, 0))
+        self.grid.place_agent(Cargador(int(f"{num_agentes}") + 4, self), (M-1, 0))
+
+         # Posicionamiento de muebles
         num_muebles = int(M * N * porc_muebles)
         posiciones_muebles = self.random.sample(posiciones_disponibles, k=num_muebles)
 
@@ -115,7 +176,7 @@ class Habitacion(Model):
         if modo_pos_inicial == 'Aleatoria':
             pos_inicial_robots = self.random.sample(posiciones_disponibles, k=num_agentes)
         else:  # 'Fija'
-            pos_inicial_robots = [(1, 1)] * num_agentes
+            pos_inicial_robots = [(int(M/2), 0)] * num_agentes
 
         for id in range(num_agentes):
             robot = RobotLimpieza(id, self)
