@@ -4,6 +4,7 @@ from mesa.space import MultiGrid
 from mesa.time import SimultaneousActivation
 from mesa.datacollection import DataCollector
 
+
 import numpy as np
 
 xGrid = 0
@@ -18,8 +19,8 @@ class Mueble(Agent):
         super().__init__(unique_id, model)
 
 class Cargador(Agent):
-    def _init_(self, unique_id, model):
-        super()._init_(unique_id, model)
+    def __init__(self, unique_id, model):
+        super().__init__(unique_id, model)
         self.cargas = 0
 
 class RobotLimpieza(Agent):
@@ -85,6 +86,8 @@ class RobotLimpieza(Agent):
                     if isinstance(obj, Cargador):
                         if self.carga + 25 <= 100:
                             self.carga += 25
+                        else:
+                            obj.cargas += 1
 
         if self.carga < 35:
             self.cargaBaja = True
@@ -102,12 +105,21 @@ class RobotLimpieza(Agent):
                 self.limpiar_una_celda(celdas_sucias)
 
     def advance(self):
-        if self.pos != self.sig_pos:
-            self.movimientos += 1
+        vecindad = self.model.grid.get_neighborhood(
+            self.sig_pos, moore=True, include_center=False)
+        for cell in vecindad:
+            objects = self.model.grid.get_cell_list_contents(cell)
+            for obj in objects:
+                if isinstance(obj, RobotLimpieza):
+                    if obj.sig_pos == self.sig_pos:
+                        if obj.unique_id > self.unique_id:
+                            self.sig_pos = self.pos
 
-        if self.carga > 0:
-            self.carga -= 1
-            self.model.grid.move_agent(self, self.sig_pos)
+        if self.pos != self.sig_pos:
+            if self.carga > 0:
+                self.movimientos += 1
+                self.carga -= 1
+                self.model.grid.move_agent(self, self.sig_pos)
 
 class Habitacion(Model):
     def __init__(self, M: int, N: int,
@@ -185,16 +197,25 @@ class Habitacion(Model):
 
         self.datacollector = DataCollector(
             model_reporters={"Grid": get_grid, "Cargas": get_cargas,
-                             "CeldasSucias": get_sucias},
+                             "CeldasSucias": get_sucias, "Movimientos": get_movimientos},
         )
 
     def step(self):
         self.datacollector.collect(self)
-
         self.schedule.step()
+        if self.todoLimpio():
+            self.running = False
 
     def todoLimpio(self):
-        for (content, x, y) in self.grid.coord_iter():
+        for cell in self.grid.coord_iter():
+            if len(cell) == 3:
+                content, x, y = cell
+            elif len(cell) == 2:
+                content, pos = cell
+                x, y = pos
+            else:
+                raise ValueError("Unexpected format in coord_iter")
+
             for obj in content:
                 if isinstance(obj, Celda) and obj.sucia:
                     return False
@@ -219,8 +240,14 @@ def get_grid(model: Model) -> np.ndarray:
     return grid
 
 
-def get_cargas(model: Model):
-    return [(agent.unique_id, agent.carga) for agent in model.schedule.agents]
+def get_cargas(model: Model) -> int:
+    sum_cargas = 0
+    for cell in model.grid.coord_iter():
+        cell_content, pos = cell
+        for obj in cell_content:
+            if isinstance(obj, Cargador):
+                sum_cargas += obj.cargas
+    return sum_cargas
 
 
 def get_sucias(model: Model) -> int:
@@ -235,11 +262,14 @@ def get_sucias(model: Model) -> int:
         for obj in cell_content:
             if isinstance(obj, Celda) and obj.sucia:
                 sum_sucias += 1
-    return sum_sucias / model.num_celdas_sucias
+    return sum_sucias
 
+def get_movimientos(model: Model) -> int:
+    sum_movimientos = 0
+    for cell in model.grid.coord_iter():
+        cell_content, pos = cell
+        for obj in cell_content:
+            if isinstance(obj, RobotLimpieza):
+                sum_movimientos += obj.movimientos
 
-def get_movimientos(agent: Agent) -> dict:
-    if isinstance(agent, RobotLimpieza):
-        return {agent.unique_id: agent.movimientos}
-    # else:
-    #    return 0
+    return sum_movimientos
